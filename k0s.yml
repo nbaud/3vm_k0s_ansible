@@ -1,0 +1,111 @@
+---
+- hosts: localhost
+  become: yes
+  tasks:
+    - name: Install dependencies
+      apt:
+        name: [curl, apt-transport-https, lsb-release]
+        state: present
+
+    - name: Add Kubernetes apt key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Add Kubernetes apt repository
+      apt_repository:
+        repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+        state: present
+
+    - name: Update package cache
+      apt:
+        update_cache: yes
+
+    - name: Install rsync
+      apt:
+        name: rsync
+        state: present
+
+    - name: Install kubectl
+      apt:
+        name: kubectl
+        state: present
+
+    - name: Install containerd
+      apt:
+        name: containerd
+        state: present
+
+    - name: Install k0s on the master
+      command:
+        cmd: curl -sSLf https://get.k0s.sh | sh
+      args:
+        creates: /usr/local/bin/k0s
+
+    - name: Set up k0s as a system service on master
+      command:
+        cmd: k0s install controller --enable-worker
+      args:
+        creates: /etc/systemd/system/k0scontroller.service
+
+    - name: Start the k0s service
+      systemd:
+        name: k0scontroller
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Wait for 10 seconds
+      wait_for:
+        timeout: 10
+
+- hosts: 10.0.0.11:10.0.0.12
+  become: yes
+  serial: 1
+  tasks:
+    - name: Install dependencies
+      apt:
+        name: [curl, apt-transport-https, lsb-release]
+        state: present
+
+    - name: Update package cache
+      apt:
+        update_cache: yes
+
+    - name: Install containerd
+      apt:
+        name: containerd
+        state: present
+
+    - name: Install rsync
+      apt:
+        name: rsync
+        state: present
+
+    - name: Install k0s on the workers
+      shell:
+        cmd: curl -sSLf https://get.k0s.sh | sh
+        creates: /usr/local/bin/k0s
+      args:
+        executable: /bin/bash
+
+    - name: Generate and get join token for this worker
+      command: k0s token create --role=worker --status-socket /run/k0s/status.sock
+      delegate_to: localhost
+      run_once: true
+      register: join_token
+
+    - name: Save the join token to a file on the worker
+      copy:
+        content: "{{ join_token.stdout }}"
+        dest: "/tmp/token.cluster"
+
+    - name: Check if k0sworker service file exists
+      stat:
+        path: /etc/systemd/system/k0sworker.service
+      register: k0sworker_service_file
+
+    - name: Join worker node to the cluster using token file
+      command:
+        cmd: k0s install worker --token-file /tmp/token.cluster
+      when: not k0sworker_service_file.stat.exists
