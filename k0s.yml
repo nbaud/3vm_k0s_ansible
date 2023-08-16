@@ -2,6 +2,13 @@
 - hosts: localhost
   become: yes
   tasks:
+    - name: Gather facts about the master
+      setup:
+      
+    - name: Set API address fact
+      set_fact:
+        api_address: "{{ ansible_default_ipv4.address }}"
+
     - name: Install dependencies
       apt:
         name: [curl, apt-transport-https, lsb-release]
@@ -31,6 +38,16 @@
         name: containerd
         state: present
 
+    - name: Place k0s configuration
+      template:
+        src: k0s-config.j2
+        dest: /etc/k0s/k0s.yaml
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - restart k0s
+
     - name: Install k0s on the master
       command:
         cmd: curl -sSLf https://get.k0s.sh | sh
@@ -57,6 +74,8 @@
 - hosts: 10.0.0.11:10.0.0.12
   become: yes
   serial: 1
+  vars:
+    api_address: 10.0.0.10
   tasks:
     - name: Install dependencies
       apt:
@@ -99,3 +118,11 @@
       command:
         cmd: k0s install worker --token-file /tmp/token.cluster
       when: not k0sworker_service_file.stat.exists
+
+  handlers:
+    - name: restart k0s
+      systemd:
+        name: k0scontroller
+        state: restarted
+        daemon_reload: yes
+

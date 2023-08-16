@@ -1,0 +1,9 @@
+apiVersion: k0s.k0sproject.io/v1beta1
+kind: Cluster
+metadata:
+  name: local
+spec:
+  api:
+    address: {{ api_address }}
+    port: 6443
+    k0sApiPort: 9443
