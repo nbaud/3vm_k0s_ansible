@@ -7,12 +7,30 @@
       
     - name: Set API address fact
       set_fact:
-        api_address: "{{ ansible_default_ipv4.address }}"
+        api_address: "10.0.0.10"
 
     - name: Install dependencies
       apt:
-        name: [curl, apt-transport-https, lsb-release]
+        name: [curl, apt-transport-https, lsb-release, ntp, ntpdate]
         state: present
+
+    - name: Stop NTP service
+      systemd:
+        name: ntp
+        state: stopped
+        enabled: no
+
+    - name: Configure NTP servers
+      shell:
+        cmd: ntpdate pool.ntp.org
+      args:
+        executable: /bin/bash
+
+    - name: Start NTP service
+      systemd:
+        name: ntp
+        state: started
+        enabled: yes
 
     - name: Add Kubernetes apt key
       apt_key:
@@ -28,6 +46,12 @@
       apt:
         update_cache: yes
 
+    - name: Stop unattended-upgrades service
+      systemd:
+        name: unattended-upgrades
+        state: stopped
+      ignore_errors: true
+
     - name: Install kubectl
       apt:
         name: kubectl
@@ -38,9 +62,17 @@
         name: containerd
         state: present
 
+    - name: Ensure /etc/k0s directory exists
+      file:
+        path: /etc/k0s
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
     - name: Place k0s configuration
       template:
-        src: k0s-config.j2
+        src: k0s_config.j2
         dest: /etc/k0s/k0s.yaml
         owner: root
         group: root
@@ -49,10 +81,11 @@
         - restart k0s
 
     - name: Install k0s on the master
-      command:
+      shell:
         cmd: curl -sSLf https://get.k0s.sh | sh
-      args:
         creates: /usr/local/bin/k0s
+      args:
+        executable: /bin/bash  
 
     - name: Set up k0s as a system service on master
       command:
@@ -71,6 +104,22 @@
       wait_for:
         timeout: 10
 
+    - name: Ensure /root/.kube directory exists
+      file:
+        path: /root/.kube
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy the admin kubeconfig to the default location for kubectl
+      copy:
+        src: /var/lib/k0s/pki/admin.conf
+        dest: /root/.kube/config
+        owner: root
+        group: root
+        mode: '0644'
+
 - hosts: 10.0.0.11:10.0.0.12
   become: yes
   serial: 1
@@ -79,12 +128,36 @@
   tasks:
     - name: Install dependencies
       apt:
-        name: [curl, apt-transport-https, lsb-release]
+        name: [curl, apt-transport-https, lsb-release, ntp, ntpdate]
         state: present
+
+    - name: Stop NTP service
+      systemd:
+        name: ntp
+        state: stopped
+        enabled: no
+
+    - name: Configure NTP servers
+      shell:
+        cmd: ntpdate pool.ntp.org
+      args:
+        executable: /bin/bash
+
+    - name: Start NTP service
+      systemd:
+        name: ntp
+        state: started
+        enabled: yes
 
     - name: Update package cache
       apt:
         update_cache: yes
+
+    - name: Stop unattended-upgrades service
+      systemd:
+        name: unattended-upgrades
+        state: stopped
+      ignore_errors: true
 
     - name: Install containerd
       apt:
@@ -99,9 +172,8 @@
         executable: /bin/bash
 
     - name: Generate and get join token for this worker
-      command: k0s token create --role=worker --status-socket /run/k0s/status.sock --api-server=https://10.0.0.10:6443
+      command: k0s token create --role=worker --status-socket /run/k0s/status.sock
       delegate_to: localhost
-      run_once: true
       register: join_token
 
     - name: Save the join token to a file on the worker

@@ -1,0 +1,5 @@
+handlers:
+  - name: restart k0s
+    service:
+      name: k0s
+      state: restarted
