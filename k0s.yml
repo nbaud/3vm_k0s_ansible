@@ -21,11 +21,6 @@
       apt:
         update_cache: yes
 
-    - name: Install rsync
-      apt:
-        name: rsync
-        state: present
-
     - name: Install kubectl
       apt:
         name: kubectl
@@ -77,11 +72,6 @@
         name: containerd
         state: present
 
-    - name: Install rsync
-      apt:
-        name: rsync
-        state: present
-
     - name: Install k0s on the workers
       shell:
         cmd: curl -sSLf https://get.k0s.sh | sh
@@ -90,7 +80,7 @@
         executable: /bin/bash
 
     - name: Generate and get join token for this worker
-      command: k0s token create --role=worker --status-socket /run/k0s/status.sock
+      command: k0s token create --role=worker --status-socket /run/k0s/status.sock --api-server=https://10.0.0.10:6443
       delegate_to: localhost
       run_once: true
       register: join_token
